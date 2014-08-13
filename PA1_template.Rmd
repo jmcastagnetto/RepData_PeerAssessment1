@@ -3,17 +3,47 @@
 
 ## Loading and preprocessing the data
 
-
+```{r}
+activity  <- read.csv(unz("activity.zip", "activity.csv"),
+                      stringsAsFactors=FALSE)
+activity$date <- as.Date(activity$date)
+library(lubridate)
+activity$day <- day(activity$date)
+plot(activity$steps ~ activity$date, pch=20, col=rgb(0,0,1,0.1))
+```
 
 ## What is mean total number of steps taken per day?
 
+```{r}
+library(dplyr)
+dat1 <- activity %>% filter(!is.na(steps)) %>% group_by(date) %>%
+    summarise(nsteps=sum(steps))
+hist(dat1$nsteps, main="Distribution of total number of steps per day",
+     xlab="Steps", breaks=10)
+mean(dat1$nsteps)
+median(dat1$nsteps)
+```
 
 
 ## What is the average daily activity pattern?
 
+```{r}
+dat2 <- activity %>% filter(!is.na(steps)) %>% group_by(interval) %>%
+    summarise(avgsteps=mean(steps))
+plot(avgsteps ~ interval, data=dat2, type="l")
+# Which 5-minute interval, on average across all the days in the
+# dataset, contains the maximum number of steps
+dat2[with(dat2, avgsteps==max(avgsteps)),"interval"]
+```
 
 
 ## Imputing missing values
+
+```{r}
+# Calculate and report the total number of missing values in the dataset
+# (i.e. the total number of rows with NAs)
+sum(is.na(activity$steps))
+```
 
 
 
