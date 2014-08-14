@@ -1,50 +1,180 @@
 # Reproducible Research: Peer Assessment 1
 
+```{r}
+# knitr configuration
+library(knitr)
+opts_knit$set(progress=FALSE)
+opts_chunk$set(echo=TRUE, message=FALSE, tidy=TRUE, comment=NA,
+               fig.path="figure/", fig.keep="high", fig.width=10, fig.height=6,
+               fig.align="center")
+# load required libs
+library(lubridate, quietly=TRUE, warn.conflicts=FALSE)
+library(dplyr, quietly=TRUE, warn.conflicts=FALSE)
+library(ggplot2, quietly=TRUE, warn.conflicts=FALSE)
+```
 
-## Loading and preprocessing the data
+## Part 1: Loading and preprocessing the data
+
+We read the data set from the file `activity.csv` inside the zip archive
+`activity.zip`, assigning the appropriate classes to the columns
 
 ```{r}
+# read the data
 activity  <- read.csv(unz("activity.zip", "activity.csv"),
-                      stringsAsFactors=FALSE)
-activity$date <- as.Date(activity$date)
-library(lubridate)
-activity$day <- day(activity$date)
-plot(activity$steps ~ activity$date, pch=20, col=rgb(0,0,1,0.1))
+                      colClasses=c("integer","Date","integer"))
 ```
 
-## What is mean total number of steps taken per day?
+The summary of the data set indicates that it contains son `NA` values in the
+`steps` column:
 
 ```{r}
-library(dplyr)
-dat1 <- activity %>% filter(!is.na(steps)) %>% group_by(date) %>%
-    summarise(nsteps=sum(steps))
-hist(dat1$nsteps, main="Distribution of total number of steps per day",
-     xlab="Steps", breaks=10)
-mean(dat1$nsteps)
-median(dat1$nsteps)
+summary(activity)
 ```
 
-
-## What is the average daily activity pattern?
+Then, we create another data frame (`activity2`) from where we will remove all
+the rows with `NA`:
 
 ```{r}
-dat2 <- activity %>% filter(!is.na(steps)) %>% group_by(interval) %>%
-    summarise(avgsteps=mean(steps))
-plot(avgsteps ~ interval, data=dat2, type="l")
-# Which 5-minute interval, on average across all the days in the
-# dataset, contains the maximum number of steps
-dat2[with(dat2, avgsteps==max(avgsteps)),"interval"]
+# remove the NA in steps
+activity2 <- activity[!is.na(activity$steps),]
+n1 <- nrow(activity)
+n2 <- nrow(activity2)
 ```
 
+So, we went from a data set with `r n1` rows with missing values, to one 
+with `r n2` rows without missing values.
 
-## Imputing missing values
+## Part 2: What is the mean total number of steps taken per day?
+
+We first calculate the total number of steps taken per day (using `dplyr`)
 
 ```{r}
-# Calculate and report the total number of missing values in the dataset
-# (i.e. the total number of rows with NAs)
+df1 <- activity2 %>% group_by(date) %>% summarise(nsteps=sum(steps))
+```
+
+Then we plot a histogram for the total number of steps taken per day during
+the period under analysis.
+
+```{r part1-histogram}
+p1hist <- ggplot(df1, aes(x=nsteps)) + geom_histogram(col=rgb(0,0,1,0.5), 
+                                            fill=rgb(0,0,1,0.5), binwidth=500) +
+    ggtitle("Distribution of total number of steps per day") +
+    xlab("Number of steps") + ylab("Frequency") +
+    theme_bw()
+p1hist
+```
+
+Finally, we calculate the mean and the median of the total number of steps taken
+per day.
+
+```{r}
+dfmean = format(round(mean(df1$nsteps),2), nsmall=2)
+dfmedian = format(round(median(df1$nsteps), 2), nsmall=2)
+```
+
+- **Mean**: `r dfmean`
+- **Median**: `r dfmedian`
+
+
+## Part 3: What is the average daily activity pattern?
+
+To obtain the daily activity pattern, we will summarise by interval accross
+all 53 days in the period under analysis.
+
+```{r}
+df2 <- activity2 %>% group_by(interval) %>% summarise(avgsteps=mean(steps))
+```
+
+And then make a time series plot of the summarised data:
+
+```{r part2-tsplot}
+ggplot(df2, aes(x=interval, y=avgsteps)) + geom_line(color="blue") +
+    ggtitle("Average daily pattern") + ylab("Mean number of steps") +
+    xlab("Daily 5-minute interval") + theme_bw()
+```
+
+Finally, we want to know which 5-minute interval, on average and across all
+days in the range, contains the maximum number of steps
+
+```{r}
+df2[with(df2, avgsteps==max(avgsteps)),]$interval
+```
+
+## Part 4: Imputing missing values
+
+In the original data set, we have missing a number of rows with missing values
+
+```{r}
 sum(is.na(activity$steps))
 ```
 
+For this part of the analysis, we will impute those values using the median 
+for each corresponding 5-minute interval, on the assumption that people tend 
+to follow similar routines on a daily basis.
+
+We will proceed as follows:
+
+1. Estimate the per interval median using `dplyr` as a new accessory data set
+2. Add the median column to the activity data set by merging it with the set
+   created in the previous step
+3. Replace all `NA` values in the `steps` column by the corresponding median
+   value
+4. Remove the median column from the final data set.
+
+```{r}
+# step 1
+df3 <- activity %>% group_by(interval) %>% 
+    summarise(median=median(steps, na.rm=TRUE))
+# step 2
+activity3 <- merge(activity, df3, by="interval")
+# step 3
+activity3$steps <- ifelse(is.na(activity3$steps), 
+                          activity3$median, activity3$steps)
+# step 4
+activity3$median <- NULL
+```
+
+Let's explore the effect of imputing missing values in the distribution of total
+daily number of steps, and its mean and median
+
+```{r part4-histogram}
+df4 <- activity3 %>% group_by(date) %>% summarise(nsteps=sum(steps))
+p4hist <- ggplot(df4, aes(x=nsteps)) + geom_histogram(col=rgb(0,1,0,0.5), 
+                                            fill=rgb(0,1,0,0.5), binwidth=500) +
+    ggtitle("Distribution of total number of steps per day (imputed data)") +
+    xlab("Number of steps") + ylab("Frequency") +
+    theme_bw()
+p4hist
+```
+
+The most visible effect in the histogram is that now there are days with a 
+total number of steps in the (1000,1500) total steps interval.
+
+But, the effect on the mean and median values of the 
+
+```{r}
+dfmean2 = format(round(mean(df4$nsteps),2), nsmall=2)
+dfmedian2 = format(round(median(df4$nsteps), 2), nsmall=2)
+```
+
+- **Mean**: `r dfmean2`
+- **Median**: `r dfmedian2`
+
+The statistics calculated from the imputed data set are lower than those of
+the original (in which we ignore the missing data):
+
+```{r results='asis'}
+kable(data.frame("Statistic"=c("Mean", "Median"),
+                  "Original"=c(dfmean, dfmedian),
+                  "Imputed"=c(dfmean2, dfmedian2)))
+```
+
+## Part 5: Are there differences in activity patterns between weekdays and weekends?
 
 
-## Are there differences in activity patterns between weekdays and weekends?
+## Reproducibility information
+
+```{r}
+sessionInfo()
+```
+
