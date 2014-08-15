@@ -8,7 +8,6 @@ opts_chunk$set(echo=TRUE, message=FALSE, tidy=TRUE, comment=NA,
                fig.path="figure/", fig.keep="high", fig.width=10, fig.height=6,
                fig.align="center")
 # load required libs
-library(lubridate, quietly=TRUE, warn.conflicts=FALSE)
 library(dplyr, quietly=TRUE, warn.conflicts=FALSE)
 library(ggplot2, quietly=TRUE, warn.conflicts=FALSE)
 ```
@@ -31,8 +30,28 @@ The summary of the data set indicates that it contains son `NA` values in the
 summary(activity)
 ```
 
-Then, we create another data frame (`activity2`) from where we will remove all
-the rows with `NA`:
+Also, it should be noted that for simplicity we read the
+`interval` column as integer, but in reality it represents a the start
+of a 5-minute interval within a day, with one or two digits for the hour, 
+and 2 more digits for the minute part of the time. 
+
+We will convert it to the appropriate format (hh:mm), and then
+consider it as an ordered factor. In this way, we can obtain better
+labelled plots.
+
+```{r}
+tohhmm <- function(interval) {
+    s <- sprintf("%04d", interval)
+    s <- paste0(substr(s,1,2),":",substr(s,3,4))
+    return(s)
+}
+tmp <- tohhmm(activity$interval)
+activity$interval  <- factor(tmp, levels=unique(tmp), ordered=TRUE)
+```
+
+In some of the analyses that follow we will need a data set without 
+missing values, thus we create one (`activity2`) from which we
+remove all the rows with `NA`:
 
 ```{r}
 # remove the NA in steps
@@ -44,9 +63,10 @@ n2 <- nrow(activity2)
 So, we went from a data set with `r n1` rows with missing values, to one 
 with `r n2` rows without missing values.
 
-## Part 2: What is the mean total number of steps taken per day?
+## Part 2: What is the distribution and mean of the total number of steps taken per day?
 
-We first calculate the total number of steps taken per day (using `dplyr`)
+In order to answer that question, we first calculate the total number of
+steps taken per day (using `dplyr`)
 
 ```{r}
 df1 <- activity2 %>% group_by(date) %>% summarise(nsteps=sum(steps))
@@ -55,13 +75,12 @@ df1 <- activity2 %>% group_by(date) %>% summarise(nsteps=sum(steps))
 Then we plot a histogram for the total number of steps taken per day during
 the period under analysis.
 
-```{r part1-histogram}
-p1hist <- ggplot(df1, aes(x=nsteps)) + geom_histogram(col=rgb(0,0,1,0.5), 
+```{r part2-histogram}
+ggplot(df1, aes(x=nsteps)) + geom_histogram(col=rgb(0,0,1,0.5), 
                                             fill=rgb(0,0,1,0.5), binwidth=500) +
     ggtitle("Distribution of total number of steps per day") +
     xlab("Number of steps") + ylab("Frequency") +
     theme_bw()
-p1hist
 ```
 
 Finally, we calculate the mean and the median of the total number of steps taken
@@ -87,10 +106,21 @@ df2 <- activity2 %>% group_by(interval) %>% summarise(avgsteps=mean(steps))
 
 And then make a time series plot of the summarised data:
 
-```{r part2-tsplot}
-ggplot(df2, aes(x=interval, y=avgsteps)) + geom_line(color="blue") +
-    ggtitle("Average daily pattern") + ylab("Mean number of steps") +
-    xlab("Daily 5-minute interval") + theme_bw()
+```{r part3-timeseries}
+# prepare some vectors to label the x-axes
+intbrk <- as.numeric(df2$interval)
+intbrk <- intbrk[seq(1, length(intbrk), 12)]
+intlab <- levels(df2$interval)
+intlab <- intlab[seq(1, length(intlab), 12)]
+# make the plot
+ggplot(df2, aes(x=as.numeric(interval), y=avgsteps)) + 
+    scale_x_continuous(breaks=intbrk, labels=intlab) +
+    geom_line(color="blue") +
+    ggtitle("Average daily pattern") + 
+    ylab("Average number of steps") +
+    xlab("Interval") + 
+    theme_bw() +
+    theme(axis.text.x=element_text(angle=90, hjust=1))
 ```
 
 Finally, we want to know which 5-minute interval, on average and across all
@@ -139,18 +169,17 @@ daily number of steps, and its mean and median
 
 ```{r part4-histogram}
 df4 <- activity3 %>% group_by(date) %>% summarise(nsteps=sum(steps))
-p4hist <- ggplot(df4, aes(x=nsteps)) + geom_histogram(col=rgb(0,1,0,0.5), 
+ggplot(df4, aes(x=nsteps)) + geom_histogram(col=rgb(0,1,0,0.5), 
                                             fill=rgb(0,1,0,0.5), binwidth=500) +
     ggtitle("Distribution of total number of steps per day (imputed data)") +
     xlab("Number of steps") + ylab("Frequency") +
     theme_bw()
-p4hist
 ```
 
 The most visible effect in the histogram is that now there are days with a 
-total number of steps in the (1000,1500) total steps interval.
+total number of steps in the (1000, 1500) range.
 
-But, the effect on the mean and median values of the 
+The mean and median for this imputed data set are: 
 
 ```{r}
 dfmean2 = format(round(mean(df4$nsteps),2), nsmall=2)
@@ -160,17 +189,64 @@ dfmedian2 = format(round(median(df4$nsteps), 2), nsmall=2)
 - **Mean**: `r dfmean2`
 - **Median**: `r dfmedian2`
 
-The statistics calculated from the imputed data set are lower than those of
-the original (in which we ignore the missing data):
+These statistics from the imputed data set are lower than those from
+the original (in which we ignored the missing data):
 
 ```{r results='asis'}
 kable(data.frame("Statistic"=c("Mean", "Median"),
                   "Original"=c(dfmean, dfmedian),
-                  "Imputed"=c(dfmean2, dfmedian2)))
+                  "Imputed"=c(dfmean2, dfmedian2)),
+      format="html", table.attr="cellpadding='3'")
 ```
 
 ## Part 5: Are there differences in activity patterns between weekdays and weekends?
 
+To be able to distinguish between working days and weekend days, we
+will create a variable (`daytype`) and use it to label put each day in
+one of the two categories.
+
+```{r}
+activity3$daytype <- ifelse(
+    weekdays(activity3$date) %in% c("Saturday", "Sunday"),
+    "Weekend", "Weekday")
+activity3$daytype <- as.factor(activity3$daytype)
+```
+
+Then we calculate the average number of steps for each interval and type
+of day.
+
+```{r}
+df5 <- activity3 %>% group_by(daytype, interval) %>% summarise(mean=mean(steps))
+```
+
+And plot a comparison of the number of steps per interval for the two
+types of days:
+
+```{r part5-timeseries, fig.height=10}
+# prepare a couple of vectors to label de x-axis
+intbrk <- unique(as.numeric(df5$interval))
+intbrk <- intbrk[seq(1, length(intbrk), 12)]
+intlab <- levels(df5$interval)
+intlab <- intlab[seq(1, length(intlab), 12)]
+# make the plot
+ggplot(df5, aes(x=as.numeric(interval), y=mean, color=daytype)) +
+    scale_x_continuous(breaks=intbrk, labels=intlab) +
+    geom_line() + facet_wrap(~ daytype, ncol=1) + 
+    xlab("Interval") + ylab("Average number of steps") +
+    ggtitle("Comparison of activity by type of day") + 
+    scale_color_discrete(guide="none") +
+    theme_bw() +
+    theme(axis.text.x=element_text(angle=90, hjust=1))
+```
+
+The graphs indicate that during weekdays, the activity starts at around
+05:30h, peaks at around 08:30h and dies down at around 20:00h; whereas,
+for weekends, it starts at a bit after 06:00h, peaks a tad after 09:00h 
+and subsides around 22:00h.
+
+Also, it would seem that most of the activity on weekdays is concentrated
+in the morning hours, whereas there seems to be more activity throughout
+the day on weekends.
 
 ## Reproducibility information
 
