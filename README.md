@@ -1,3 +1,16 @@
+## Local repo note
+
+I added a shell script (`make.sh`) to build the report using the R
+script `make_report.R`
+
+Usually it will be run as follows:
+
+```sh
+$ ./make.sh
+```
+
+That's all there is to it :-)
+
 ## Introduction
 
 It is now possible to collect a large amount of data about personal
